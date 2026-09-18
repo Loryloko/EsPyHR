@@ -1,0 +1,5 @@
+Code/01.HR_Assistant/.env
+Code/02.HR_Assistant/.env
+.env
+.chainlit/
+__pycache__/
