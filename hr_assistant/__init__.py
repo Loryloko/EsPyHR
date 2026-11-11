@@ -154,7 +154,97 @@
 
 # AVANZAMENTO 3 - HR ASSISTANT MODULARE
 
-import os
+# import os
+# import chainlit as cl
+# 
+# from .document_processor import DocumentProcessor
+# from .database import Database
+# from .config import Config
+# from .utils import LLMHelper
+# 
+# 
+# documents, metadatas, ids = DocumentProcessor.process_documents()
+# 
+# db = Database()
+# db.add_documents(documents, metadatas, ids)
+# 
+# @cl.on_chat_start
+# def start():
+#     cl.user_session.set(
+#         "messages",
+#         [
+#             {
+#                 "role": "system",
+#                 "content": """
+#                     Sei un assistente specializzato nel mondo HR,
+#                     rispondi in modo professionale, sintetico e pragmatico.
+#                     Il tuo ruolo è individuare il candidato ideale
+#                     rispetto alle richieste dell'utente.
+#                 """,
+#             }
+#         ],
+#     )
+# 
+# 
+# @cl.on_message
+# async def handle_message(message: cl.Message):
+# 
+#     user_question = message.content
+# 
+#     results = db.query(user_question)
+# 
+#     filename = results["metadatas"][0][0]["source"]
+# 
+#     context_lines = DocumentProcessor.read_first_lines(
+#         os.path.join(Config.DOCUMENTS_DIR, filename), 10
+#     )
+# 
+#     context = (
+#         f"CONTESTO: nome file {filename} "
+#         f"ecco il paragrafo più significativo: "
+#         f"{results['documents'][0][0]}"
+#     )
+# 
+#     candidate_name = await LLMHelper.get_candidate_name(context_lines)
+# 
+#     prompt = LLMHelper.create_prompt(
+#         context,
+#         user_question,
+#         candidate_name
+#     )
+# 
+#     messages = cl.user_session.get("messages", [])
+#     messages.append({"role": "user", "content": prompt})
+# 
+#     response_message = cl.Message(content="")
+#     await response_message.send()
+# 
+#     try:
+#         stream = LLMHelper.chat(messages)
+# 
+#         for chunk in stream:
+#             token = chunk.choices[0].delta.content
+# 
+#             if token:
+#                 await response_message.stream_token(token)
+# 
+#         messages.append({
+#             "role": "assistant",
+#             "content": response_message.content
+#         })
+# 
+#         await response_message.update()
+# 
+#     except Exception as e:
+#         error_message = f"An error occurred: {str(e)}"
+#         await cl.Message(content=error_message).send()
+#         print(error_message)
+# 
+#     cl.user_session.set("messages", messages)
+# 
+
+# AVANZAMENTO 4 - HR ASSISTANT CON SINCRONIZZAZIONE DOCUMENTI
+
 import chainlit as cl
 
 from .document_processor import DocumentProcessor
@@ -162,15 +252,14 @@ from .database import Database
 from .config import Config
 from .utils import LLMHelper
 
-# INIZIALIZZAZIONE DOCUMENTI E DATABASE
-
-documents, metadatas, ids = DocumentProcessor.process_documents()
-
 db = Database()
-db.add_documents(documents, metadatas, ids)
 
+added, updated, removed = DocumentProcessor.process_documents(db)
 
-# GESTIONE CONVERSAZIONE
+print("Sincronizzazione documenti completata:")
+print(f"Nuovi documenti: {added}")
+print(f"Documenti aggiornati: {updated}")
+print(f"Documenti rimossi: {removed}")
 
 @cl.on_chat_start
 def start():
@@ -199,22 +288,15 @@ async def handle_message(message: cl.Message):
 
     filename = results["metadatas"][0][0]["source"]
 
-    context_lines = DocumentProcessor.read_first_lines(
-        os.path.join(Config.DOCUMENTS_DIR, filename), 10
-    )
-
     context = (
         f"CONTESTO: nome file {filename} "
         f"ecco il paragrafo più significativo: "
         f"{results['documents'][0][0]}"
     )
 
-    candidate_name = await LLMHelper.get_candidate_name(context_lines)
-
     prompt = LLMHelper.create_prompt(
         context,
-        user_question,
-        candidate_name
+        user_question
     )
 
     messages = cl.user_session.get("messages", [])
@@ -224,7 +306,11 @@ async def handle_message(message: cl.Message):
     await response_message.send()
 
     try:
+        print("Invio richiesta a Ollama...")
+
         stream = LLMHelper.chat(messages)
+
+        print("Connessione a Ollama riuscita.")
 
         for chunk in stream:
             token = chunk.choices[0].delta.content
@@ -240,8 +326,9 @@ async def handle_message(message: cl.Message):
         await response_message.update()
 
     except Exception as e:
+        print(f"ERRORE COMPLETO: {repr(e)}")
+
         error_message = f"An error occurred: {str(e)}"
         await cl.Message(content=error_message).send()
-        print(error_message)
 
     cl.user_session.set("messages", messages)
