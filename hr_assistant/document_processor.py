@@ -79,6 +79,41 @@ class DocumentProcessor:
         }
 
     @staticmethod
+    def split_text(text, chunk_size=800, overlap=100):
+        """Divide il testo in blocchi con una sovrapposizione."""
+
+        chunks = []
+        start = 0
+
+        while start < len(text):
+            end = start + chunk_size
+
+            if end < len(text):
+                boundary = text.rfind(" ", start, end)
+
+                if boundary > start:
+                    end = boundary
+
+            chunk = text[start:end].strip()
+
+            if chunk:
+                chunks.append(chunk)
+
+            if end >= len(text):
+                break
+
+            next_start = max(start + 1, end - overlap)
+
+            next_space = text.find(" ", next_start)
+
+            if next_space != -1:
+                next_start = next_space + 1
+
+            start = next_start
+
+        return chunks    
+    
+    @staticmethod
     def process_single_document(file_path):
         """Elabora un singolo documento dividendolo in blocchi."""
         documents = []
@@ -86,7 +121,8 @@ class DocumentProcessor:
         ids = []
 
         with open(file_path, "r", encoding="utf-8") as file:
-            chunks = file.read().replace("\n", ".").split("### ")
+            text = file.read()
+            chunks = DocumentProcessor.split_text(text)
             file_metadata = DocumentProcessor.get_document_metadata(file_path)
 
             for chunk in chunks:
@@ -98,7 +134,7 @@ class DocumentProcessor:
         return documents, metadatas, ids
 
     @staticmethod
-    def process_documents(db):
+    def process_documents(db, force=False):
         """Sincronizza i documenti con il database."""
 
         current_files = {
@@ -111,15 +147,26 @@ class DocumentProcessor:
 
         existing_files = db.get_tracked_files()
 
-        files_to_add = set(current_files.keys()) - set(existing_files.keys())
+        # AVANZAMENTO 5 - REINDICIZZAZIONE FORZATA
 
-        files_to_remove = set(existing_files.keys()) - set(current_files.keys())
+        if force:
+            for filename in existing_files:
+                db.remove_document_by_source(filename)
 
-        files_to_update = {
-            filename
-            for filename in set(current_files.keys()) & set(existing_files.keys())
-            if current_files[filename]["hash"] != existing_files[filename]["hash"]
-        }
+            files_to_add = set(current_files.keys())
+            files_to_update = set()
+            files_to_remove = set()
+
+        else:
+            files_to_add = set(current_files.keys()) - set(existing_files.keys())
+
+            files_to_remove = set(existing_files.keys()) - set(current_files.keys())
+
+            files_to_update = {
+                filename
+                for filename in set(current_files.keys()) & set(existing_files.keys())
+                if current_files[filename]["hash"] != existing_files[filename]["hash"]
+            }
 
         for action, files in [
             ("add", files_to_add),

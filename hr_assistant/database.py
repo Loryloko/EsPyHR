@@ -100,3 +100,26 @@ class Database:
 
         if result and result["ids"]:
             self.collection.delete(ids=result["ids"])
+
+# AVANZAMENTO 5 - STATISTICHE DATABASE
+
+    def get_stats(self):
+        """Recupera le statistiche del database."""
+    
+        total_chunks = self.collection.count()
+    
+        result = self.collection.get(
+            include=["metadatas"]
+        )
+    
+        unique_files = set()
+    
+        if result and result["metadatas"]:
+            for metadata in result["metadatas"]:
+                if metadata and metadata.get("source"):
+                    unique_files.add(metadata["source"])
+    
+        return {
+            "total_chunks": total_chunks,
+            "total_files": len(unique_files)
+        }

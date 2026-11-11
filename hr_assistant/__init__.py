@@ -245,12 +245,104 @@
 
 # AVANZAMENTO 4 - HR ASSISTANT CON SINCRONIZZAZIONE DOCUMENTI
 
+# import chainlit as cl
+# 
+# from .document_processor import DocumentProcessor
+# from .database import Database
+# from .config import Config
+# from .utils import LLMHelper
+# 
+# db = Database()
+# 
+# added, updated, removed = DocumentProcessor.process_documents(db)
+# 
+# print("Sincronizzazione documenti completata:")
+# print(f"Nuovi documenti: {added}")
+# print(f"Documenti aggiornati: {updated}")
+# print(f"Documenti rimossi: {removed}")
+# 
+# @cl.on_chat_start
+# def start():
+#     cl.user_session.set(
+#         "messages",
+#         [
+#             {
+#                 "role": "system",
+#                 "content": """
+#                     Sei un assistente specializzato nel mondo HR,
+#                     rispondi in modo professionale, sintetico e pragmatico.
+#                     Il tuo ruolo è individuare il candidato ideale
+#                     rispetto alle richieste dell'utente.
+#                 """,
+#             }
+#         ],
+#     )
+# 
+# 
+# @cl.on_message
+# async def handle_message(message: cl.Message):
+# 
+#     user_question = message.content
+# 
+#     results = db.query(user_question)
+# 
+#     filename = results["metadatas"][0][0]["source"]
+# 
+#     context = (
+#         f"CONTESTO: nome file {filename} "
+#         f"ecco il paragrafo più significativo: "
+#         f"{results['documents'][0][0]}"
+#     )
+# 
+#     prompt = LLMHelper.create_prompt(
+#         context,
+#         user_question
+#     )
+# 
+#     messages = cl.user_session.get("messages", [])
+#     messages.append({"role": "user", "content": prompt})
+# 
+#     response_message = cl.Message(content="")
+#     await response_message.send()
+# 
+#     try:
+#         print("Invio richiesta a Ollama...")
+# 
+#         stream = LLMHelper.chat(messages)
+# 
+#         print("Connessione a Ollama riuscita.")
+# 
+#         for chunk in stream:
+#             token = chunk.choices[0].delta.content
+# 
+#             if token:
+#                 await response_message.stream_token(token)
+# 
+#         messages.append({
+#             "role": "assistant",
+#             "content": response_message.content
+#         })
+# 
+#         await response_message.update()
+# 
+#     except Exception as e:
+#         print(f"ERRORE COMPLETO: {repr(e)}")
+# 
+#         error_message = f"An error occurred: {str(e)}"
+#         await cl.Message(content=error_message).send()
+# 
+#     cl.user_session.set("messages", messages)
+
+# AVANZAMENTO 5 - HR ASSISTANT CON ESTRAZIONE CONTATTI
+
+import os
 import chainlit as cl
 
 from .document_processor import DocumentProcessor
 from .database import Database
 from .config import Config
 from .utils import LLMHelper
+
 
 db = Database()
 
@@ -261,8 +353,9 @@ print(f"Nuovi documenti: {added}")
 print(f"Documenti aggiornati: {updated}")
 print(f"Documenti rimossi: {removed}")
 
+
 @cl.on_chat_start
-def start():
+async def start():
     cl.user_session.set(
         "messages",
         [
@@ -278,21 +371,72 @@ def start():
         ],
     )
 
+    stats_action = cl.Action(
+        name="db_stats",
+        label="Statistiche Database",
+        payload={}
+    )
+
+    reindex_action = cl.Action(
+        name="db_reindex",
+        label="Reindex Database",
+        payload={}
+    )
+
+    await cl.Message(
+        content="Benvenuto nell'HR Assistant! Seleziona un'azione:",
+        actions=[stats_action, reindex_action]
+    ).send()
 
 @cl.on_message
 async def handle_message(message: cl.Message):
 
     user_question = message.content
 
-    results = db.query(user_question)
+    results = db.query(user_question, 3)
 
-    filename = results["metadatas"][0][0]["source"]
+    if not results["documents"] or not results["documents"][0]:
+        await cl.Message(
+            content="Non ho trovato informazioni pertinenti nei CV."
+        ).send()
+        return
 
-    context = (
-        f"CONTESTO: nome file {filename} "
-        f"ecco il paragrafo più significativo: "
-        f"{results['documents'][0][0]}"
-    )
+    # AVANZAMENTO 5 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
+
+    candidates = {}
+
+    for document, metadata in zip(
+        results["documents"][0],
+        results["metadatas"][0]
+    ):
+        
+        filename = metadata["source"]
+
+        if filename not in candidates:
+            candidates[filename] = {
+                "info": DocumentProcessor.read_first_lines(
+                    os.path.join(Config.DOCUMENTS_DIR, filename), 10
+                ),
+                "documents": []
+            }
+
+        candidates[filename]["documents"].append(document)
+
+
+    context_parts = []
+
+    for filename, candidate in candidates.items():
+        context_parts.append(f"""
+            FILE CV: {filename}
+
+            INFORMAZIONI DEL CANDIDATO:
+            {chr(10).join(candidate["info"])}
+
+            FRAMMENTI PIÙ PERTINENTI:
+            {" ".join(candidate["documents"])}
+        """)
+
+    context = "\n\n".join(context_parts)
 
     prompt = LLMHelper.create_prompt(
         context,
@@ -332,3 +476,32 @@ async def handle_message(message: cl.Message):
         await cl.Message(content=error_message).send()
 
     cl.user_session.set("messages", messages)
+
+@cl.action_callback("db_stats")
+async def show_db_stats(action: cl.Action):
+
+    stats = LLMHelper.get_db_stats(db)
+
+    await cl.Message(
+        content=f"**Statistiche Database**\n\n{stats}"
+    ).send()
+
+@cl.action_callback("db_reindex")
+async def reindex_db(action: cl.Action):
+
+    await cl.Message(
+        content="Reindicizzazione del database in corso..."
+    ).send()
+
+    added, updated, removed = DocumentProcessor.process_documents(
+        db,
+        force=True
+    )
+
+    await cl.Message(
+        content=(
+            "**Reindicizzazione completata!**\n\n"
+            f"CV elaborati: {added + updated}\n"
+            f"CV rimossi: {removed}"
+        )
+    ).send()
