@@ -1,4 +1,3 @@
-
 import os
 from dotenv import load_dotenv
 
@@ -10,11 +9,10 @@ class Config:
     COLLECTION_NAME = "CVs"
     PERSISTENT_DIR = "data/chromadb"
 
-    # Embeddings
-    MODEL_NAME = "text-embedding-3-small"
-    OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+    # Embeddings con Ollama
+    EMBEDDING_PROVIDER = "ollama"
+    EMBEDDING_MODEL = "nomic-embed-text"
 
-    # Modello linguistico
-    LLM_MODEL = "llama3.2"
-    AI_API_URL = "http://localhost:11434/v1"
-    AI_API_KEY = "ollama"
+    # OpenAI
+    OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+    LLM_MODEL = "gpt-4.1-mini"

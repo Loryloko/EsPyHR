@@ -1,4 +1,4 @@
-# AVANZAMENTO 3 - ELABORAZIONE DOCUMENTI 
+# AVANZAMENTO 2 - ELABORAZIONE DOCUMENTI 
 
 # import os
 # import uuid
@@ -40,13 +40,16 @@
 #             ]
 
 
-# AVANZAMENTO 4 - SINCRONIZZAZIONE DOCUMENTI
+# AVANZAMENTO 3 - SINCRONIZZAZIONE DOCUMENTI
 
 import os
 import uuid
 import hashlib
 from .config import Config
 
+# AVANZAMENTO 5
+
+from .semantic_chunking import SemanticChunking
 
 class DocumentProcessor:
 
@@ -112,24 +115,36 @@ class DocumentProcessor:
             start = next_start
 
         return chunks    
-    
+
+# AVANZAMENTO 5
+
     @staticmethod
-    def process_single_document(file_path):
-        """Elabora un singolo documento dividendolo in blocchi."""
+    def process_single_document(file_path, use_semantic=True):
+        """Elabora un documento dividendolo in blocchi."""
+
         documents = []
         metadatas = []
         ids = []
 
         with open(file_path, "r", encoding="utf-8") as file:
             text = file.read()
-            chunks = DocumentProcessor.split_text(text)
-            file_metadata = DocumentProcessor.get_document_metadata(file_path)
 
-            for chunk in chunks:
-                if chunk.strip():
-                    documents.append(chunk)
-                    metadatas.append(file_metadata)
-                    ids.append(str(uuid.uuid4()))
+        if use_semantic:
+            chunking = SemanticChunking(
+                breakpoint_percentile=70,
+                buffer_size=1
+            )
+            chunks = chunking.chunk_text(text)
+        else:
+            chunks = DocumentProcessor.split_text(text)
+
+        file_metadata = DocumentProcessor.get_document_metadata(file_path)
+
+        for chunk in chunks:
+            if chunk.strip():
+                documents.append(chunk)
+                metadatas.append(file_metadata)
+                ids.append(str(uuid.uuid4()))
 
         return documents, metadatas, ids
 
@@ -147,7 +162,7 @@ class DocumentProcessor:
 
         existing_files = db.get_tracked_files()
 
-        # AVANZAMENTO 5 - REINDICIZZAZIONE FORZATA
+        # AVANZAMENTO 4 - REINDICIZZAZIONE FORZATA
 
         if force:
             for filename in existing_files:

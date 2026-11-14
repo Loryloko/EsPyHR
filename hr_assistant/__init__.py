@@ -1,4 +1,4 @@
-# AVANZAMENTO 1 - CHAT CHAINLIT BASE
+# AVANZAMENTO 0 - CHAT CHAINLIT BASE
 
 # import chainlit as cl
 #
@@ -7,7 +7,7 @@
 #     response = f"Ciao, mi hai scritto: {message.content}!"
 #     await cl.Message(response).send()
 
-# AVANZAMENTO 2 - HR ASSISTANT
+# AVANZAMENTO 1 - HR ASSISTANT
 
 # import chainlit as cl
 # import ollama
@@ -152,7 +152,7 @@
 #         "content": response_message.content
 #     })
 
-# AVANZAMENTO 3 - HR ASSISTANT MODULARE
+# AVANZAMENTO 2 - HR ASSISTANT MODULARE
 
 # import os
 # import chainlit as cl
@@ -243,7 +243,7 @@
 #     cl.user_session.set("messages", messages)
 # 
 
-# AVANZAMENTO 4 - HR ASSISTANT CON SINCRONIZZAZIONE DOCUMENTI
+# AVANZAMENTO 3 - HR ASSISTANT CON SINCRONIZZAZIONE DOCUMENTI
 
 # import chainlit as cl
 # 
@@ -333,7 +333,7 @@
 # 
 #     cl.user_session.set("messages", messages)
 
-# AVANZAMENTO 5 - HR ASSISTANT CON ESTRAZIONE CONTATTI
+# AVANZAMENTO 4 - HR ASSISTANT CON ESTRAZIONE CONTATTI
 
 import os
 import chainlit as cl
@@ -393,15 +393,14 @@ async def handle_message(message: cl.Message):
 
     user_question = message.content
 
-    results = db.query(user_question, 3)
-
+    results = db.query(user_question, 10)
     if not results["documents"] or not results["documents"][0]:
         await cl.Message(
             content="Non ho trovato informazioni pertinenti nei CV."
         ).send()
         return
 
-    # AVANZAMENTO 5 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
+    # AVANZAMENTO 4 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
 
     candidates = {}
 
@@ -443,18 +442,16 @@ async def handle_message(message: cl.Message):
         user_question
     )
 
-    messages = cl.user_session.get("messages", [])
-    messages.append({"role": "user", "content": prompt})
-
+    messages = [
+        cl.user_session.get("messages", [])[0],
+        {"role": "user", "content": prompt}
+    ]
+    
     response_message = cl.Message(content="")
     await response_message.send()
 
     try:
-        print("Invio richiesta a Ollama...")
-
         stream = LLMHelper.chat(messages)
-
-        print("Connessione a Ollama riuscita.")
 
         for chunk in stream:
             token = chunk.choices[0].delta.content

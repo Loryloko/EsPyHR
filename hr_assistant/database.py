@@ -1,5 +1,5 @@
 
-# AVANZAMENTO 3 - DATABASE
+# AVANZAMENTO 2 - DATABASE
 # 
 # import chromadb
 # from chromadb.utils import embedding_functions
@@ -37,28 +37,28 @@
 #         )
 # 
 
-# AVANZAMENTO 4 - DATABASE E SINCRONIZZAZIONE
+# AVANZAMENTO 3 - DATABASE E SINCRONIZZAZIONE
 
 import chromadb
-from chromadb.utils import embedding_functions
 from .config import Config
+
+# AVANZAMENTO 5 - DATABASE E SINCRONIZZAZIONE
+
+from .custom_embedding import CustomEmbeddingFunction
 
 
 class Database:
 
     def __init__(self):
-        self.openai_ef = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=Config.OPENAI_KEY,
-            model_name=Config.MODEL_NAME
-        )
+        self.embedding_function = CustomEmbeddingFunction()
 
         self.client = chromadb.PersistentClient(
             path=Config.PERSISTENT_DIR
         )
 
         self.collection = self.client.get_or_create_collection(
-            name=Config.COLLECTION_NAME,
-            embedding_function=self.openai_ef
+            name=f"{Config.COLLECTION_NAME}_Ollama",
+            embedding_function=self.embedding_function
         )
 
     def add_documents(self, documents, metadatas, ids):
@@ -71,7 +71,8 @@ class Database:
     def query(self, query_text, n_results=1):
         return self.collection.query(
             query_texts=[query_text],
-            n_results=n_results
+            n_results=n_results,
+            include=["documents", "metadatas", "distances"]
         )
 
     def get_tracked_files(self):
@@ -101,7 +102,7 @@ class Database:
         if result and result["ids"]:
             self.collection.delete(ids=result["ids"])
 
-# AVANZAMENTO 5 - STATISTICHE DATABASE
+# AVANZAMENTO 4 - STATISTICHE DATABASE
 
     def get_stats(self):
         """Recupera le statistiche del database."""
