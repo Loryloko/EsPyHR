@@ -16,3 +16,7 @@ class Config:
     # OpenAI
     OPENAI_KEY = os.getenv("OPENAI_API_KEY")
     LLM_MODEL = "gpt-4.1-mini"
+
+    # AVANZAMENTO 6.1
+    MODEL_PATH = "modelli/mio_modello"
+    OPENAI_EMBEDDINGS_KEY = os.getenv("OPENAI_API_KEY")

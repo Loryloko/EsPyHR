@@ -57,7 +57,7 @@ class Database:
         )
 
         self.collection = self.client.get_or_create_collection(
-            name=f"{Config.COLLECTION_NAME}_Ollama",
+            name=f"{Config.COLLECTION_NAME}_{Config.EMBEDDING_PROVIDER}",
             embedding_function=self.embedding_function
         )
 
