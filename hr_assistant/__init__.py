@@ -336,6 +336,7 @@
 # AVANZAMENTO 4 - HR ASSISTANT CON ESTRAZIONE CONTATTI
 
 import os
+import traceback
 import chainlit as cl
 
 from .document_processor import DocumentProcessor
@@ -353,6 +354,8 @@ print(f"Nuovi documenti: {added}")
 print(f"Documenti aggiornati: {updated}")
 print(f"Documenti rimossi: {removed}")
 
+def cv_path(filename):
+    return os.path.join(Config.DOCUMENTS_DIR, filename)
 
 @cl.on_chat_start
 async def start():
@@ -370,6 +373,9 @@ async def start():
             }
         ],
     )
+
+    # AVANZAMENTO 6.2
+    cl.user_session.set("last_cv_file", None)
 
     stats_action = cl.Action(
         name="db_stats",
@@ -393,65 +399,130 @@ async def handle_message(message: cl.Message):
 
     user_question = message.content
 
-    results = db.query(user_question, 10)
-    if not results["documents"] or not results["documents"][0]:
+    # AVANZAMENTO 6.2
+    messages = cl.user_session.get("messages", [])
+    active_file = cl.user_session.get("last_cv_file")
+
+    if active_file:
+        active_cv_summary = (
+            f"File: {active_file}\n"
+            + "\n".join(
+                DocumentProcessor.read_first_lines(cv_path(active_file), 8)
+            )
+        )
+        intent = LLMHelper.classify_intent(user_question, active_cv_summary)
+    else:
+        intent = "search_cv"
+
+    print(f"Intento: {intent} | CV attivo: {active_file}")
+
+
+    if intent == "search_cv":
+
+        results = db.query(user_question)
+
+        if not results["documents"] or not results["documents"][0]:
+            await cl.Message(
+                content="Non ho trovato informazioni pertinenti nei CV."
+            ).send()
+            return
+
+        # AVANZAMENTO 4 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
+# 
+#         best_filename = results["metadatas"][0][0]["source"]
+# 
+#         candidates = {}
+# 
+#         for document, metadata in zip(
+#             results["documents"][0],
+#             results["metadatas"][0]
+#         ):
+# 
+#             filename = metadata["source"]
+# 
+#             if filename != best_filename:
+#                 continue
+#             if filename not in candidates:
+#                 candidates[filename] = {
+#                     "info": DocumentProcessor.read_first_lines(
+#                         os.path.join(Config.DOCUMENTS_DIR, filename), 10
+#                     ),
+#                     "documents": []
+#                 }
+# 
+#             candidates[filename]["documents"].append(document)
+# 
+#         context_parts = []
+# 
+#         for filename, candidate in candidates.items():
+#             context_parts.append(f"""
+#                 FILE CV: {filename}
+# 
+#                 INFORMAZIONI DEL CANDIDATO:
+#                 {chr(10).join(candidate["info"])}
+# 
+#                 FRAMMENTI PIÙ PERTINENTI:
+#                 {" ".join(candidate["documents"])}
+#             """)
+# 
+#         context = "\n\n".join(context_parts)
+# 
+#         cl.user_session.set("last_cv_context", context)
+#         cl.user_session.set(
+#             "last_cv_header",
+#             ", ".join(candidates.keys())
+#         )
+
+        filename = results["metadatas"][0][0]["source"]
+
+        context_lines = DocumentProcessor.read_first_lines(
+            cv_path(filename), 20
+        )
+
+        context = (
+            f" **Nome file**: {filename}\n"
+            f" **Estratto dal CV:**\n"
+            f"```{results['documents'][0][0]}```"
+        )
+
+        prompt = LLMHelper.create_prompt(
+            context,
+            user_question,
+            context_lines
+        )
+
+
+    # AVANZAMENTO 6.2
+    elif intent == "info_cv":
+
+        filename = active_file
+
+        full_cv = "\n".join(
+            DocumentProcessor.read_first_lines(cv_path(filename), 2000)
+        )
+
+        prompt = LLMHelper.create_info_prompt(
+            f"File: {filename}\n{full_cv}",
+            user_question
+        )
+
+    else:
         await cl.Message(
-            content="Non ho trovato informazioni pertinenti nei CV."
+            content=(
+                "Non ho capito la richiesta. "
+                "Puoi chiedermi di cercare un candidato "
+                "oppure di approfondire un CV già individuato."
+            )
         ).send()
         return
 
-    # AVANZAMENTO 4 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
+    call_messages = messages + [{"role": "user", "content": prompt}]
 
-    candidates = {}
-
-    for document, metadata in zip(
-        results["documents"][0],
-        results["metadatas"][0]
-    ):
-        
-        filename = metadata["source"]
-
-        if filename not in candidates:
-            candidates[filename] = {
-                "info": DocumentProcessor.read_first_lines(
-                    os.path.join(Config.DOCUMENTS_DIR, filename), 10
-                ),
-                "documents": []
-            }
-
-        candidates[filename]["documents"].append(document)
-
-
-    context_parts = []
-
-    for filename, candidate in candidates.items():
-        context_parts.append(f"""
-            FILE CV: {filename}
-
-            INFORMAZIONI DEL CANDIDATO:
-            {chr(10).join(candidate["info"])}
-
-            FRAMMENTI PIÙ PERTINENTI:
-            {" ".join(candidate["documents"])}
-        """)
-
-    context = "\n\n".join(context_parts)
-
-    prompt = LLMHelper.create_prompt(
-        context,
-        user_question
-    )
-
-    messages = [
-        cl.user_session.get("messages", [])[0],
-        {"role": "user", "content": prompt}
-    ]
-    
     response_message = cl.Message(content="")
     await response_message.send()
 
     try:
-        stream = LLMHelper.chat(messages)
+        stream = LLMHelper.chat(call_messages)
 
         for chunk in stream:
             token = chunk.choices[0].delta.content
@@ -459,20 +530,27 @@ async def handle_message(message: cl.Message):
             if token:
                 await response_message.stream_token(token)
 
+        await response_message.update()
+
+        messages.append({
+            "role": "user",
+            "content": f"{user_question}\n(CV di riferimento: {filename})"
+        })
         messages.append({
             "role": "assistant",
             "content": response_message.content
         })
 
-        await response_message.update()
+        cl.user_session.set("messages", messages)
+
+        cl.user_session.set("last_cv_file", filename)
 
     except Exception as e:
+        traceback.print_exc(limit=-15, chain=False)
         print(f"ERRORE COMPLETO: {repr(e)}")
 
         error_message = f"An error occurred: {str(e)}"
         await cl.Message(content=error_message).send()
-
-    cl.user_session.set("messages", messages)
 
 @cl.action_callback("db_stats")
 async def show_db_stats(action: cl.Action):
