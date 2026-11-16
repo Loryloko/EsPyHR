@@ -55,11 +55,18 @@ class Database:
         self.client = chromadb.PersistentClient(
             path=Config.PERSISTENT_DIR
         )
+# AVANZAMENTO 8
+        self._init_collection()
 
+    def _init_collection(self):
         self.collection = self.client.get_or_create_collection(
             name=f"{Config.COLLECTION_NAME}_{Config.EMBEDDING_PROVIDER}",
             embedding_function=self.embedding_function
         )
+
+    def delete_collection(self):
+        self.client.delete_collection(self.collection.name)
+        self._init_collection()
 
     def add_documents(self, documents, metadatas, ids):
         self.collection.add(

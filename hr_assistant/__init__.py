@@ -344,6 +344,8 @@ from .database import Database
 from .config import Config
 from .utils import LLMHelper
 
+# AVANZAMENTO 8
+import shutil
 
 db = Database()
 
@@ -403,13 +405,76 @@ async def start():
         payload={}
     )
 
+    remove_action = cl.Action(
+        name="db_remove",
+        label="Svuota completamente il Database",
+        payload={}
+    )
+
     await cl.Message(
         content="Benvenuto nell'HR Assistant! Seleziona un'azione:",
-        actions=[stats_action, reindex_action]
+        actions=[stats_action, reindex_action, remove_action]
+    ).send()
+
+async def _process_and_index_file(file_path: str, file_name: str) -> str:
+    """Elabora e indicizza il documento, restituendo un messaggio di esito."""
+    documents, metadatas, ids = dp.process_single_document(file_path)
+
+    if documents:
+        # se il file esisteva già, elimina i vecchi frammenti (niente duplicati)
+        db.remove_document_by_source(file_name)
+        db.add_documents(documents, metadatas, ids)
+        return f"File '{file_name}' caricato e indicizzato con successo."
+
+    return f"Errore nel processare il file '{file_name}'."
+
+
+async def _file_upload(file) -> str:
+    file_name = os.path.basename(file.name)
+    src_file_path = file.path
+    dst_file_path = os.path.join(Config.DOCUMENTS_DIR, file_name)
+
+    os.makedirs(Config.DOCUMENTS_DIR, exist_ok=True)
+    shutil.move(src_file_path, dst_file_path)
+
+    return await _process_and_index_file(dst_file_path, file_name)
+
+
+@cl.action_callback("db_remove")
+async def remove_db(action: cl.Action):
+
+    db.delete_collection()
+    cl.user_session.set("last_cv_file", None)
+
+    await cl.Message(
+        content=(
+            "Il database è stato completamente svuotato. "
+            "Per ricostruirlo premi **Reindex Database**."
+        )
     ).send()
 
 @cl.on_message
 async def handle_message(message: cl.Message):
+
+    if message.elements:
+        await cl.Message(content="Caricamento e indicizzazione documenti").send()
+
+        files = [
+            file
+            for file in message.elements
+            if file.name.lower().endswith(tuple(DocumentProcessor.SUPPORTED_EXTENSIONS))
+        ]
+
+        if files:
+            upload_results = [await _file_upload(file) for file in files]
+        else:
+            upload_results = ["Nessun file caricato"]
+
+        await cl.Message(content="\n".join(upload_results)).send()
+        await cl.Message(content=f"Caricati {len(files)} file").send()
+
+        if not message.content.strip():
+            return
 
     user_question = message.content
 
@@ -487,9 +552,7 @@ async def handle_message(message: cl.Message):
 
         if requested_file:
             results = db.get_document_chunks(filename)
-            
-            print(f">>> INFO_CV: {filename} | frammenti: {len(results['documents'])}", flush=True)
-            
+                        
             if not results["documents"]:
                 await cl.Message(
                     content=f"Non ho trovato informazioni pertinenti nel documento {filename}."
@@ -505,7 +568,7 @@ async def handle_message(message: cl.Message):
             results = db.query(user_question, n_results=8)
 
             print(">>> QUERY ESEGUITA <<<", flush=True)
-            print(">>> RISULTATI:", results, flush=True)            
+            
             for i, (metadata, distance) in enumerate(
                 zip(results["metadatas"][0], results["distances"][0]), start=1
             ):
@@ -611,7 +674,6 @@ async def handle_message(message: cl.Message):
     await response_message.send()
 
     try:
-        print(">>> invio richiesta al modello", flush=True)
         stream = LLMHelper.chat(call_messages)
 
         for chunk in stream:
