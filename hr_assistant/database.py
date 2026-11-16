@@ -68,13 +68,27 @@ class Database:
             ids=ids
         )
 
-    def query(self, query_text, n_results=1):
+    def query(self, query_text, n_results=8, source=None):
+
+        filters = {"source": source} if source else None
+        
         return self.collection.query(
             query_texts=[query_text],
             n_results=n_results,
-            include=["documents", "metadatas", "distances"]
+            where=filters,
+            include=["documents", "metadatas", "distances"],
         )
 
+    def get_document_chunks(self, source):
+        """Recupera tutti i frammenti appartenenti a un documento."""
+
+        results = self.collection.get(
+            where={"source": source},
+            include=["documents", "metadatas"]
+        )
+
+        return results
+    
     def get_tracked_files(self):
         """Recupera i file registrati nel database."""
         result = self.collection.get()

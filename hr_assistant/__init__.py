@@ -347,7 +347,8 @@ from .utils import LLMHelper
 
 db = Database()
 
-added, updated, removed = DocumentProcessor.process_documents(db)
+dp = DocumentProcessor()
+added, updated, removed = dp.process_documents(db)
 
 print("Sincronizzazione documenti completata:")
 print(f"Nuovi documenti: {added}")
@@ -356,6 +357,19 @@ print(f"Documenti rimossi: {removed}")
 
 def cv_path(filename):
     return os.path.join(Config.DOCUMENTS_DIR, filename)
+
+def find_requested_file(question):
+    """Individua se l'utente ha indicato un documento specifico."""
+
+    available_files = db.get_tracked_files()
+
+    question_lower = question.casefold()
+
+    for filename in available_files:
+        if filename.casefold() in question_lower:
+            return filename
+
+    return None
 
 @cl.on_chat_start
 async def start():
@@ -403,106 +417,181 @@ async def handle_message(message: cl.Message):
     messages = cl.user_session.get("messages", [])
     active_file = cl.user_session.get("last_cv_file")
 
-    if active_file:
-        active_cv_summary = (
-            f"File: {active_file}\n"
-            + "\n".join(
-                DocumentProcessor.read_first_lines(cv_path(active_file), 8)
-            )
-        )
-        intent = LLMHelper.classify_intent(user_question, active_cv_summary)
+    requested_file = find_requested_file(user_question)
+
+    if requested_file:
+        intent = "search_cv"
+        filename = requested_file
+    
     else:
+        intent = LLMHelper.classify_intent(user_question, active_file)
+        print(f"Intento: {intent} | CV attivo: {active_file} | " f"Documento richiesto: {requested_file}")
+    
+    if intent == "info_cv" and not active_file:
         intent = "search_cv"
 
-    print(f"Intento: {intent} | CV attivo: {active_file}")
-
-
-    if intent == "search_cv":
-
-        results = db.query(user_question)
-
-        if not results["documents"] or not results["documents"][0]:
+    if intent == "search_multiple":
+    
+        print(">>> RICERCA MULTIPLA CANDIDATI <<<", flush=True)
+    
+        candidate_files = db.get_tracked_files()
+        candidates_context = []
+    
+        for candidate_file in candidate_files:
+        
+            results = db.get_document_chunks(candidate_file)
+    
+            if results["documents"]:
+            
+                full_document = "\n\n".join(results["documents"])
+    
+                candidates_context.append(
+                    f"FILE: {candidate_file}\n"
+                    f"CONTENUTO:\n{full_document}"
+                )
+    
+        if not candidates_context:
             await cl.Message(
-                content="Non ho trovato informazioni pertinenti nei CV."
+                content="Non ho trovato documenti da analizzare."
             ).send()
             return
+    
+        context = "\n\n".join(candidates_context)
+    
+        prompt = f"""
+            Sei un assistente specializzato nella selezione del personale.
+    
+            Devi analizzare tutti i documenti forniti e rispondere
+            alla richiesta dell'utente.
+    
+            DOCUMENTI DISPONIBILI:
+            {context}
+    
+            RICHIESTA:
+            {user_question}
+    
+            REGOLE:
+            - Analizza tutti i documenti, non soltanto il primo.
+            - Individua tutti i candidati che soddisfano i requisiti.
+            - Per ciascun candidato indica nome, cognome, anni di
+              esperienza e ruolo, quando disponibili e pertinenti.
+            - Specifica sempre il nome del file di provenienza.
+            - Non includere candidati che non soddisfano i requisiti.
+            - Non inventare informazioni mancanti.
+            - Se un dato non è presente, dichiaralo.
+            - Se nessun candidato soddisfa i requisiti, dichiaralo.
+            - Rispondi in italiano, in modo chiaro e ordinato.
+        """
 
-        # AVANZAMENTO 4 - RAGGRUPPAMENTO DEI FRAMMENTI PER CV
-# 
-#         best_filename = results["metadatas"][0][0]["source"]
-# 
-#         candidates = {}
-# 
-#         for document, metadata in zip(
-#             results["documents"][0],
-#             results["metadatas"][0]
-#         ):
-# 
-#             filename = metadata["source"]
-# 
-#             if filename != best_filename:
-#                 continue
-#             if filename not in candidates:
-#                 candidates[filename] = {
-#                     "info": DocumentProcessor.read_first_lines(
-#                         os.path.join(Config.DOCUMENTS_DIR, filename), 10
-#                     ),
-#                     "documents": []
-#                 }
-# 
-#             candidates[filename]["documents"].append(document)
-# 
-#         context_parts = []
-# 
-#         for filename, candidate in candidates.items():
-#             context_parts.append(f"""
-#                 FILE CV: {filename}
-# 
-#                 INFORMAZIONI DEL CANDIDATO:
-#                 {chr(10).join(candidate["info"])}
-# 
-#                 FRAMMENTI PIÙ PERTINENTI:
-#                 {" ".join(candidate["documents"])}
-#             """)
-# 
-#         context = "\n\n".join(context_parts)
-# 
-#         cl.user_session.set("last_cv_context", context)
-#         cl.user_session.set(
-#             "last_cv_header",
-#             ", ".join(candidates.keys())
-#         )
+    elif intent == "search_cv":
 
-        filename = results["metadatas"][0][0]["source"]
+        if requested_file:
+            results = db.get_document_chunks(filename)
+            
+            print(f">>> INFO_CV: {filename} | frammenti: {len(results['documents'])}", flush=True)
+            
+            if not results["documents"]:
+                await cl.Message(
+                    content=f"Non ho trovato informazioni pertinenti nel documento {filename}."
+                ).send()
+                return
 
-        context_lines = DocumentProcessor.read_first_lines(
-            cv_path(filename), 20
-        )
+            documents = results["documents"]
+
+        else:
+
+            print(">>> INIZIO RICERCA GENERICA <<<", flush=True)
+
+            results = db.query(user_question, n_results=8)
+
+            print(">>> QUERY ESEGUITA <<<", flush=True)
+            print(">>> RISULTATI:", results, flush=True)            
+            for i, (metadata, distance) in enumerate(
+                zip(results["metadatas"][0], results["distances"][0]), start=1
+            ):
+                print(
+                    f"Risultato {i}: "
+                    f"{metadata.get('source')} | "
+                    f"Distanza: {distance:.4f}"
+                )
+
+            if not results["documents"] or not results["documents"][0]:
+                await cl.Message(
+                    content=f"Non ho trovato informazioni pertinenti nel documento."
+                ).send()
+                return
+
+            # AVANZAMENTO 7 - SELEZIONE DEL CV PIÙ PERTINENTE
+
+            candidate_files = []
+            candidates_context = []
+
+            for document, metadata in zip(
+                results["documents"][0],
+                results["metadatas"][0]
+            ):
+                source = metadata.get("source")
+
+                if source not in candidate_files:
+                    candidate_files.append(source)
+
+                candidates_context.append(
+                    f"FILE: {source}\n"
+                    f"CONTENUTO: {document}"
+                )
+
+            filename = LLMHelper.select_cv(
+                user_question,
+                "\n\n".join(candidates_context),
+                candidate_files
+            )
+
+            if filename is None:
+                await cl.Message(
+                    content=(
+                        "Non ho trovato un candidato che soddisfi "
+                        "i requisiti richiesti nei CV individuati."
+                    )
+                ).send()
+                return
+
+            full_results = db.get_document_chunks(filename)
+
+            documents = full_results["documents"]
+        full_cv = "\n\n".join(documents)
 
         context = (
-            f" **Nome file**: {filename}\n"
-            f" **Estratto dal CV:**\n"
-            f"```{results['documents'][0][0]}```"
+            f" DOCUMENTO: {filename}\n\n"
+            f" CONTENUTO COMPLETO:\n{full_cv}"
         )
 
         prompt = LLMHelper.create_prompt(
             context,
             user_question,
-            context_lines
+            ""
         )
 
-
-    # AVANZAMENTO 6.2
     elif intent == "info_cv":
 
         filename = active_file
 
-        full_cv = "\n".join(
-            DocumentProcessor.read_first_lines(cv_path(filename), 2000)
+        results = db.get_document_chunks(filename)
+
+        if not results["documents"]:
+            await cl.Message(
+                content=f"Non ho trovato informazioni sul documento {filename}."
+            ).send()
+            return
+
+        full_cv = "\n\n".join(results["documents"])
+
+        context = (
+            f" DOCUMENTO: {filename}\n\n"
+            f" CONTENUTO COMPLETO:\n{full_cv}"
         )
 
         prompt = LLMHelper.create_info_prompt(
-            f"File: {filename}\n{full_cv}",
+            context,
             user_question
         )
 
@@ -522,6 +611,7 @@ async def handle_message(message: cl.Message):
     await response_message.send()
 
     try:
+        print(">>> invio richiesta al modello", flush=True)
         stream = LLMHelper.chat(call_messages)
 
         for chunk in stream:
@@ -534,8 +624,9 @@ async def handle_message(message: cl.Message):
 
         messages.append({
             "role": "user",
-            "content": f"{user_question}\n(CV di riferimento: {filename})"
+            "content": user_question
         })
+
         messages.append({
             "role": "assistant",
             "content": response_message.content
@@ -543,7 +634,10 @@ async def handle_message(message: cl.Message):
 
         cl.user_session.set("messages", messages)
 
-        cl.user_session.set("last_cv_file", filename)
+        if intent == "search_multiple":
+            cl.user_session.set("last_cv_file", None)
+        else:
+            cl.user_session.set("last_cv_file", filename)
 
     except Exception as e:
         traceback.print_exc(limit=-15, chain=False)
@@ -568,10 +662,7 @@ async def reindex_db(action: cl.Action):
         content="Reindicizzazione del database in corso..."
     ).send()
 
-    added, updated, removed = DocumentProcessor.process_documents(
-        db,
-        force=True
-    )
+    added, updated, removed = dp.process_documents(db, force=True)
 
     await cl.Message(
         content=(

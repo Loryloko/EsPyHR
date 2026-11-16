@@ -260,13 +260,20 @@ class LLMHelper:
           Devi classificare la richiesta dell'utente in una
           delle seguenti categorie:
           
-          - search_cv: quando l'utente vuole trovare o individuare
-            un candidato in base a competenze, esperienze,
-            qualifiche o caratteristiche richieste.
-          
-          - info_cv: quando l'utente vuole ottenere informazioni
-            specifiche su un candidato, ad esempio contatti,
-            formazione, esperienze lavorative o competenze.
+          - search_cv: quando l'utente vuole trovare un singolo candidato
+            in base a competenze, esperienze o caratteristiche.
+
+          - info_cv: quando l'utente vuole approfondire informazioni
+            su un candidato già individuato.
+
+          - search_multiple: quando l'utente vuole individuare,
+            elencare o confrontare più candidati contemporaneamente.  
+
+          - Se l'utente utilizza espressioni come "tutti i candidati",
+            "quali candidati", "elenca i candidati", "confronta i candidati"
+            oppure richiede esplicitamente più profili, scegli search_multiple.
+          - search_multiple ha priorità quando la richiesta riguarda
+            più candidati, anche se esiste già un CV attivo.        
           
           IMPORTANTE:
           - Una richiesta relativa a nome, telefono o email
@@ -283,7 +290,7 @@ class LLMHelper:
 
           Domanda dell'utente: "{user_question}"
           
-          Rispondi esclusivamente con "search_cv" oppure "info_cv".
+          Rispondi esclusivamente con "search_cv", "info_cv" oppure "search_multiple".
           Non aggiungere spiegazioni.
           """
 
@@ -299,84 +306,62 @@ class LLMHelper:
 
         if "info_cv" in answer:
             return "info_cv"
+        if "search_multiple" in answer:
+            return "search_multiple"
         if "search_cv" in answer:
             return "search_cv"
-        return answer
-#     @staticmethod
-#     def create_prompt(context, question):
-#         return f"""
-#             Sei un assistente specializzato nel settore HR.
-# 
-#             Analizza attentamente il seguente contesto:
-# 
-#             [[[
-#             {context}
-#             ]]]
-# 
-#             Rispondi alla domanda dell'utente:
-#             [[[ {question} ]]]
-# 
-#             Individua il candidato più adatto alla richiesta.
-# 
-#             REGOLE PER L'ESTRAZIONE DEI DATI:
-#             - Cerca nome e cognome nelle informazioni anagrafiche.
-#             - Cerca il numero di telefono nelle informazioni di contatto.
-#             - Cerca l'indirizzo email nelle informazioni di contatto.
-#             - Se telefono o email sono presenti nel contesto, riportali
-#               obbligatoriamente e senza modificarli.
-#             - Non dichiarare un dato mancante se è effettivamente
-#               presente nel contesto.
-#             - Considera tutte le informazioni disponibili nel contesto
-#               relativo al candidato, anche se distribuite in frammenti diversi.
-#             - Non dichiarare un dato assente dal CV se potrebbe trovarsi
-#               in un altro frammento dello stesso documento.
-# 
-#             - Distingui le competenze esplicitamente dichiarate
-#               dalle competenze che potrebbero essere trasferibili.
-#             - Non considerare strumenti di sicurezza informatica,
-#               monitoraggio o networking come database.
-#             - Per la gestione dei database, cerca tecnologie
-#               esplicitamente indicate, come MySQL, PostgreSQL,
-#               MongoDB, Oracle Database o SQL Server.
-#             - Se una competenza richiesta non è esplicitamente
-#               presente nel CV, dichiarala come non verificata.
-#             - Non attribuire competenze sulla base di lauree,
-#               certificazioni o esperienze lavorative generiche.
-#             - Considera una competenza presente solo se è
-#               esplicitamente indicata nel CV del candidato.
-#             - Non dedurre competenze dalla professione,
-#               dall'esperienza lavorativa o dalla formazione.
-#             - Non inventare tecnologie, strumenti o certificazioni.
-#             - Se una tecnologia richiesta non compare nel CV,
-#               dichiara esplicitamente che non è documentata.
-#             - Distingui tra candidato parzialmente compatibile
-#               e candidato pienamente compatibile.
-#             - Non selezionare un candidato come idoneo se manca
-#               anche uno solo dei requisiti obbligatori richiesti.
-#             - Non considerare tecnologie simili, alternative o equivalenti
-#               come sostitutive del requisito richiesto.
-#             - Se l'utente richiede MySQL, considera soddisfatto il requisito
-#               esclusivamente quando MySQL è esplicitamente indicato nel CV.
-#             - PostgreSQL non soddisfa automaticamente un requisito MySQL
-#               e viceversa.
-#             - Distingui sempre tra candidato più vicino ai requisiti e
-#               candidato pienamente compatibile.
-#             - Se nessun candidato soddisfa tutti i requisiti, dichiaralo
-#               chiaramente senza selezionare un candidato come idoneo.
-# 
-#             Nella risposta:
-#             - Indica nome e cognome del candidato.
-#             - Indica il numero di telefono, se disponibile.
-#             - Indica l'indirizzo email, se disponibile.
-#             - Specifica il nome del file CV.
-#             - Argomenta la scelta utilizzando le informazioni
-#               presenti nel contesto.
-#             - Mantieni un tono professionale, sintetico e chiaro.
-# 
-#             Utilizza esclusivamente le informazioni fornite.
-#             Non inventare dati mancanti.
-#             Se non trovi una corrispondenza nei CV, dichiaralo.
-#             """
+
+        return "info_cv"
+    
+# AVANZAMENTO 7 - SELEZIONE DEL CV PIÙ PERTINENTE
+
+    @staticmethod
+    def select_cv(user_question, candidates_context, candidate_files):
+    
+        prompt = f"""
+            Sei un sistema specializzato nella selezione dei candidati.
+
+            Devi individuare quale CV soddisfa maggiormente
+            i requisiti richiesti dall'utente.
+
+            RICHIESTA:
+            {user_question}
+
+            CV DISPONIBILI:
+            {candidates_context}
+
+            REGOLE:
+            - Analizza le competenze e le esperienze effettivamente presenti.
+            - Considera soltanto le informazioni esplicitamente documentate.
+            - Non confondere professioni o competenze differenti.
+            - Non scegliere un candidato soltanto perché alcune parole
+              sono semanticamente simili alla richiesta.
+            - Se nessun candidato soddisfa la richiesta, restituisci NESSUNO.
+            - Non inventare informazioni.
+
+            FILE DISPONIBILI:
+            {candidate_files}
+
+            Rispondi esclusivamente con il nome esatto del file scelto
+            oppure con NESSUNO.
+        """
+
+        response = client.chat.completions.create(
+            model=Config.LLM_MODEL,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+
+        answer = response.choices[0].message.content.strip()
+
+        print(f">>> RISPOSTA SELEZIONE CV: {answer!r}", flush=True)
+        for filename in candidate_files:
+            if answer.casefold() == filename.casefold():
+                return filename
+
+        return None
 
 # AVANZAMENTO 6.2
     @staticmethod
