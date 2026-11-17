@@ -1,0 +1,27 @@
+/* .step .bg-accent .message-content {
+    color: rgb(238, 244, 248);
+}
+
+#chat-input.empty:before {
+    color: white !important;
+} */
+
+/* .bg-primary {
+    background-color: #000000 !important;
+} */
+
+.empty\:before\:text-muted-foreground:empty:before {
+    color: hsl(168 60% 25%) !important;
+}
+
+.dark .empty\:before\:text-muted-foreground:empty:before {
+    color: hsl(168 30% 75%) !important;
+}
+
+img[src*="/avatars/hr_assistant"] {
+    content: url("/public/logo_light.png") !important;
+}
+
+.dark img[src*="/avatars/hr_assistant"] {
+    content: url("/public/logo_dark.png") !important;
+}

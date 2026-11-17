@@ -412,6 +412,7 @@ async def start():
     )
 
     await cl.Message(
+        author="system_assistant",
         content="Benvenuto nell'HR Assistant! Seleziona un'azione:",
         actions=[stats_action, reindex_action, remove_action]
     ).send()
@@ -447,7 +448,9 @@ async def remove_db(action: cl.Action):
     cl.user_session.set("last_cv_file", None)
 
     await cl.Message(
+        author="system_assistant",
         content=(
+            
             "Il database è stato completamente svuotato. "
             "Per ricostruirlo premi **Reindex Database**."
         )
@@ -457,7 +460,7 @@ async def remove_db(action: cl.Action):
 async def handle_message(message: cl.Message):
 
     if message.elements:
-        await cl.Message(content="Caricamento e indicizzazione documenti").send()
+        await cl.Message(author="system_assistant", content="Caricamento e indicizzazione documenti").send()
 
         files = [
             file
@@ -470,8 +473,8 @@ async def handle_message(message: cl.Message):
         else:
             upload_results = ["Nessun file caricato"]
 
-        await cl.Message(content="\n".join(upload_results)).send()
-        await cl.Message(content=f"Caricati {len(files)} file").send()
+        await cl.Message(author="system_assistant", content="\n".join(upload_results)).send()
+        await cl.Message(author="system_assistant", content=f"Caricati {len(files)} file").send()
 
         if not message.content.strip():
             return
@@ -496,9 +499,7 @@ async def handle_message(message: cl.Message):
         intent = "search_cv"
 
     if intent == "search_multiple":
-    
-        print(">>> RICERCA MULTIPLA CANDIDATI <<<", flush=True)
-    
+        
         candidate_files = db.get_tracked_files()
         candidates_context = []
     
@@ -517,6 +518,7 @@ async def handle_message(message: cl.Message):
     
         if not candidates_context:
             await cl.Message(
+                author="system_assistant",
                 content="Non ho trovato documenti da analizzare."
             ).send()
             return
@@ -555,6 +557,7 @@ async def handle_message(message: cl.Message):
                         
             if not results["documents"]:
                 await cl.Message(
+                    author="system_assistant",
                     content=f"Non ho trovato informazioni pertinenti nel documento {filename}."
                 ).send()
                 return
@@ -563,11 +566,7 @@ async def handle_message(message: cl.Message):
 
         else:
 
-            print(">>> INIZIO RICERCA GENERICA <<<", flush=True)
-
             results = db.query(user_question, n_results=8)
-
-            print(">>> QUERY ESEGUITA <<<", flush=True)
             
             for i, (metadata, distance) in enumerate(
                 zip(results["metadatas"][0], results["distances"][0]), start=1
@@ -580,6 +579,7 @@ async def handle_message(message: cl.Message):
 
             if not results["documents"] or not results["documents"][0]:
                 await cl.Message(
+                    author="system_assistant",
                     content=f"Non ho trovato informazioni pertinenti nel documento."
                 ).send()
                 return
@@ -611,6 +611,7 @@ async def handle_message(message: cl.Message):
 
             if filename is None:
                 await cl.Message(
+                    author="system_assistant",
                     content=(
                         "Non ho trovato un candidato che soddisfi "
                         "i requisiti richiesti nei CV individuati."
@@ -642,6 +643,7 @@ async def handle_message(message: cl.Message):
 
         if not results["documents"]:
             await cl.Message(
+                author="system_assistant",
                 content=f"Non ho trovato informazioni sul documento {filename}."
             ).send()
             return
@@ -660,6 +662,7 @@ async def handle_message(message: cl.Message):
 
     else:
         await cl.Message(
+            author="system_assistant",
             content=(
                 "Non ho capito la richiesta. "
                 "Puoi chiedermi di cercare un candidato "
@@ -670,7 +673,7 @@ async def handle_message(message: cl.Message):
 
     call_messages = messages + [{"role": "user", "content": prompt}]
 
-    response_message = cl.Message(content="")
+    response_message = cl.Message(author="hr_assistant", content="")
     await response_message.send()
 
     try:
@@ -706,7 +709,7 @@ async def handle_message(message: cl.Message):
         print(f"ERRORE COMPLETO: {repr(e)}")
 
         error_message = f"An error occurred: {str(e)}"
-        await cl.Message(content=error_message).send()
+        await cl.Message(author="hr_assistant", content=error_message).send()
 
 @cl.action_callback("db_stats")
 async def show_db_stats(action: cl.Action):
@@ -714,6 +717,7 @@ async def show_db_stats(action: cl.Action):
     stats = LLMHelper.get_db_stats(db)
 
     await cl.Message(
+        author="system_assistant",
         content=f"**Statistiche Database**\n\n{stats}"
     ).send()
 
@@ -721,12 +725,14 @@ async def show_db_stats(action: cl.Action):
 async def reindex_db(action: cl.Action):
 
     await cl.Message(
+        author="system_assistant",
         content="Reindicizzazione del database in corso..."
     ).send()
 
     added, updated, removed = dp.process_documents(db, force=True)
 
     await cl.Message(
+        author="system_assistant",
         content=(
             "**Reindicizzazione completata!**\n\n"
             f"CV elaborati: {added + updated}\n"
